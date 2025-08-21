@@ -2,7 +2,11 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import pkg from "ssh2"; // CommonJS module
+import pkg from "ssh2";
+import dotenv from "dotenv";
+// Load environment variables from .env file
+dotenv.config();
+
 const { Server } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,20 +24,22 @@ fs.mkdirSync(ROOT, { recursive: true });
 });
 
 // Port and credentials from environment
-const PORT = process.env.PORT || 2222;
+const PORT = parseInt(process.env.PORT, 10) || 2222;
 const USER = process.env.SFTP_USER || "eagle";
 const PASS = process.env.SFTP_PASS || "eagle123";
 
-// Host key path
-const KEY_PATH = path.join(__dirname, "id_rsa");
-if (!fs.existsSync(KEY_PATH)) {
-  console.error(`❌ Missing host key: ${KEY_PATH}`);
+// Host key from environment variable
+const HOST_KEY_ENV = process.env.HOST_KEY;
+if (!HOST_KEY_ENV) {
+  console.error("❌ HOST_KEY environment variable is not set");
   process.exit(1);
 }
 
+const HOST_KEY = Buffer.from(HOST_KEY_ENV, "utf-8");
+
 const server = new Server(
   {
-    hostKeys: [fs.readFileSync(KEY_PATH)],
+    hostKeys: [HOST_KEY],
   },
   (client) => {
     console.log("🔌 Client connected");
