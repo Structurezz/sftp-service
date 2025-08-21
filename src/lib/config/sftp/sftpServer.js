@@ -1,30 +1,40 @@
+// src/lib/config/sftp/sftpServer.js
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import pkg from "ssh2";
+
 const { Server } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Root folder
+// Root folder, configurable via environment variable
 const ROOT = process.env.DATA_DIR || path.join(__dirname, "sftp-root");
 
-// Ensure root exists
-if (!fs.existsSync(ROOT)) fs.mkdirSync(ROOT, { recursive: true });
+// Ensure the root and all parent directories exist
+fs.mkdirSync(ROOT, { recursive: true });
 
 // Create standard subfolders
-["incoming/products", "incoming/inventory", "incoming/orders"].forEach(f =>
-  fs.mkdirSync(path.join(ROOT, f), { recursive: true })
-);
+["incoming/products", "incoming/inventory", "incoming/orders"].forEach((sub) => {
+  fs.mkdirSync(path.join(ROOT, sub), { recursive: true });
+});
 
+// Port and credentials from environment variables
 const PORT = process.env.PORT || 2222;
 const USER = process.env.SFTP_USER || "eagle";
 const PASS = process.env.SFTP_PASS || "eagle123";
 
+// Make sure host key exists
+const KEY_PATH = path.join(__dirname, "id_rsa");
+if (!fs.existsSync(KEY_PATH)) {
+  console.error(`❌ Missing host key: ${KEY_PATH}`);
+  process.exit(1);
+}
+
 const server = new Server(
   {
-    hostKeys: [fs.readFileSync(path.join(__dirname, "id_rsa"))]
+    hostKeys: [fs.readFileSync(KEY_PATH)],
   },
   (client) => {
     console.log("🔌 Client connected");
@@ -44,25 +54,27 @@ const server = new Server(
 
       client.on("session", (accept) => {
         const session = accept();
+
         session.on("sftp", (accept) => {
           const sftpStream = accept();
 
           // REALPATH
           sftpStream.on("REALPATH", (reqid, givenPath) => {
-            let resolved = path.resolve(ROOT, "." + givenPath);
+            const resolved = path.resolve(ROOT, "." + givenPath);
             sftpStream.name(reqid, [{ filename: resolved, longname: resolved, attrs: {} }]);
           });
 
           // OPENDIR + READDIR
           sftpStream.on("OPENDIR", (reqid, givenPath) => {
-            let fsPath = path.resolve(ROOT, "." + givenPath);
+            const fsPath = path.resolve(ROOT, "." + givenPath);
             fs.readdir(fsPath, (err, files) => {
-              if (err) return sftpStream.status(reqid, 4);
+              if (err) return sftpStream.status(reqid, 4); // FAILURE
               const handle = Buffer.from("fakehandle");
               sftpStream.handle(reqid, handle);
+
               sftpStream.on("READDIR", (reqid2, handle2) => {
                 if (handle2.toString() !== "fakehandle") return sftpStream.status(reqid2, 4);
-                const list = files.map(f => ({ filename: f, longname: f, attrs: {} }));
+                const list = files.map((f) => ({ filename: f, longname: f, attrs: {} }));
                 sftpStream.name(reqid2, list);
                 sftpStream.status(reqid2, 1); // EOF
               });
@@ -71,13 +83,13 @@ const server = new Server(
 
           // OPEN
           sftpStream.on("OPEN", (reqid, filename, flags) => {
-            let fsPath = path.resolve(ROOT, "." + filename);
-            let mode = flags & 3; // read/write
+            const fsPath = path.resolve(ROOT, "." + filename);
+            const mode = flags & 3; // read/write
             let fd;
             try {
               fd = mode === 0 ? fs.openSync(fsPath, "r") : fs.openSync(fsPath, "w");
             } catch (e) {
-              return sftpStream.status(reqid, 4);
+              return sftpStream.status(reqid, 4); // FAILURE
             }
             const handle = Buffer.alloc(4);
             handle.writeUInt32BE(fd);
@@ -86,30 +98,30 @@ const server = new Server(
 
           // READ
           sftpStream.on("READ", (reqid, handle, offset, length) => {
-            let fd = handle.readUInt32BE(0);
+            const fd = handle.readUInt32BE(0);
             const buffer = Buffer.alloc(length);
             fs.read(fd, buffer, 0, length, offset, (err, bytesRead) => {
               if (err) return sftpStream.status(reqid, 4);
-              if (bytesRead === 0) return sftpStream.status(reqid, 1);
+              if (bytesRead === 0) return sftpStream.status(reqid, 1); // EOF
               sftpStream.data(reqid, buffer.slice(0, bytesRead));
             });
           });
 
           // WRITE
           sftpStream.on("WRITE", (reqid, handle, offset, data) => {
-            let fd = handle.readUInt32BE(0);
+            const fd = handle.readUInt32BE(0);
             fs.write(fd, data, 0, data.length, offset, (err) => {
               if (err) return sftpStream.status(reqid, 4);
-              sftpStream.status(reqid, 0);
+              sftpStream.status(reqid, 0); // OK
             });
           });
 
           // CLOSE
           sftpStream.on("CLOSE", (reqid, handle) => {
-            let fd = handle.readUInt32BE(0);
+            const fd = handle.readUInt32BE(0);
             fs.close(fd, (err) => {
               if (err) return sftpStream.status(reqid, 4);
-              sftpStream.status(reqid, 0);
+              sftpStream.status(reqid, 0); // OK
             });
           });
         });
@@ -118,6 +130,7 @@ const server = new Server(
   }
 );
 
+// Start server
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 SFTP Server running on port ${PORT}`);
   console.log(`📂 Root directory: ${ROOT}`);

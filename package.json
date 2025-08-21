@@ -4,10 +4,10 @@
     "type": "module",
     "main": "src/config/sftp/sftpServer.js",
     "scripts": {
-      "start": "node src/lib/config/sftp/sftpServer.js"
+        "start": "node src/lib/config/sftp/sftpServer.js"
     },
     "dependencies": {
-      "ssh2": "^1.11.0"
+        "dotenv": "^17.2.1",
+        "ssh2": "^1.11.0"
     }
-  }
-  
+}
