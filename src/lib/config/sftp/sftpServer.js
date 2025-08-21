@@ -2,17 +2,16 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import pkg from "ssh2";
-
+import pkg from "ssh2"; // CommonJS module
 const { Server } = pkg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Root folder, configurable via environment variable
+// Root folder (configurable via env)
 const ROOT = process.env.DATA_DIR || path.join(__dirname, "sftp-root");
 
-// Ensure the root and all parent directories exist
+// Ensure the root exists
 fs.mkdirSync(ROOT, { recursive: true });
 
 // Create standard subfolders
@@ -20,12 +19,12 @@ fs.mkdirSync(ROOT, { recursive: true });
   fs.mkdirSync(path.join(ROOT, sub), { recursive: true });
 });
 
-// Port and credentials from environment variables
+// Port and credentials from environment
 const PORT = process.env.PORT || 2222;
 const USER = process.env.SFTP_USER || "eagle";
 const PASS = process.env.SFTP_PASS || "eagle123";
 
-// Make sure host key exists
+// Host key path
 const KEY_PATH = path.join(__dirname, "id_rsa");
 if (!fs.existsSync(KEY_PATH)) {
   console.error(`❌ Missing host key: ${KEY_PATH}`);
@@ -130,7 +129,6 @@ const server = new Server(
   }
 );
 
-// Start server
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 SFTP Server running on port ${PORT}`);
   console.log(`📂 Root directory: ${ROOT}`);
